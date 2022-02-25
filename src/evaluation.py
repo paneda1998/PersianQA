@@ -7,7 +7,7 @@ changes are:
 
 # local imports
 from utils import AnswerPredictor
-from load_ds import read_qa, c2dict
+from read_ds import read_qa, c2dict
 
 # official imports
 from transformers import AutoTokenizer, AutoModelForQuestionAnswering
@@ -15,17 +15,17 @@ from datasets import load_metric
 from collections import Counter
 import re
 
-model_name = # your model name
+model_name = "notebooks/result/checkpoint-4000"
 model = AutoModelForQuestionAnswering.from_pretrained(model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
 # loading testset
-test_ds = c2dict(read_qa('pqa_test.json'))
+test_ds = c2dict(read_qa('dataset/pqa_test.json'))
 questions, contexts, answers = test_ds['question'], test_ds['context'], test_ds['answers']
 
 # creating predictions
 predictor = AnswerPredictor(model, tokenizer, device='cuda')
-preds = predictor(questions, contexts, batch_size=12)
+preds = predictor(questions, contexts, batch_size=10)
 
 # cleaner function
 def cleaner(text):
