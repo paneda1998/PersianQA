@@ -14,79 +14,94 @@ from transformers import AutoTokenizer, AutoModelForQuestionAnswering
 from datasets import load_metric
 from collections import Counter
 import re
+result = []
+model_names = ["notebooks/result/bert-fa-base-uncased__PQA_32/checkpoint-2000",
+               "notebooks/result/bert-fa-base-uncased__PQA_32/checkpoint-4000",
+               "notebooks/result/bert-fa-base-uncased__PQA_32/checkpoint-6000",
+               "notebooks/result/bert-fa-base-uncased__PQA_32/checkpoint-8000",
+               "notebooks/result/bert-fa-base-uncased__PQA_32/checkpoint-10000",
+               "notebooks/result/bert-fa-base-uncased__PQA_32/checkpoint-12000",
+               "notebooks/result/bert-fa-base-uncased__PQA_32/checkpoint-14000",
+               "notebooks/result/bert-fa-base-uncased__PQA_32/checkpoint-16000",
+               "notebooks/result/bert-fa-base-uncased__PQA_32/checkpoint-18000",
+               "notebooks/result/bert-fa-base-uncased__PQA_32/checkpoint-20000",
+               "notebooks/result/bert-fa-base-uncased__PQA_32/checkpoint-22000"]
+for model_name in model_names:    
+    model_name = "AlirezaBaneshi/autotrain-test2-756523214"
+    model = AutoModelForQuestionAnswering.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-model_name = "notebooks/result/checkpoint-4000"
-model = AutoModelForQuestionAnswering.from_pretrained(model_name)
-tokenizer = AutoTokenizer.from_pretrained(model_name)
+    # loading testset
+    test_ds = c2dict(read_qa('dataset/pqa_test.json'))
+    questions, contexts, answers = test_ds['question'], test_ds['context'], test_ds['answers']
 
-# loading testset
-test_ds = c2dict(read_qa('dataset/pqa_test.json'))
-questions, contexts, answers = test_ds['question'], test_ds['context'], test_ds['answers']
-
-# creating predictions
-predictor = AnswerPredictor(model, tokenizer, device='cuda')
-preds = predictor(questions, contexts, batch_size=10)
-
-# cleaner function
-def cleaner(text):
-    return re.sub('\u200c', " ", text).strip()
-  
-# -------------------------------------------------------------------- Method One (datasets.load_metric)
-# SQuAD2.0 HuggingFace metrics 
-metric = load_metric("squad_v2") # the dataset is like SQuAD2.0
-
-formatted_preds = [{"id": str(k), 
-                    "prediction_text": cleaner(v['text']),
-                    "no_answer_probability": 0.0} 
-                    for k, v in preds.items()]
-
-references = [{"id": str(i), 
-               "answers": {'answer_start': a['answer_start'], 
-                          'text': map(cleaner, a['text'])}}
-              for i, a in enumerate(answers)]
-
-print(metric.compute(predictions=formatted_preds, references=references))
-
-# ------------------------------------------------------------------- Method Two (offical SQuADv2)
-# offical SQuAD2.0 evaluation script. Modifed slightly for this dataset
-def f1_score(prediction, ground_truth):
-    prediction_tokens = cleaner(prediction)
-    ground_truth_tokens = cleaner(ground_truth)
-    common = Counter(prediction_tokens) & Counter(ground_truth_tokens)
-    num_same = sum(common.values())
-    if num_same == 0:
-        return 0
-    precision = 1.0 * num_same / len(prediction_tokens)
-    recall = 1.0 * num_same / len(ground_truth_tokens)
-    f1 = (2 * precision * recall) / (precision + recall)
-    return f1
+    # creating predictions
+    predictor = AnswerPredictor(model, tokenizer, device='cuda')
+    preds = predictor(questions, contexts, batch_size=10)
+    # preds = predictor(questions, contexts, batch_size=10)   #8 for train
 
 
-def exact_match_score(prediction, ground_truth):
-    return (cleaner(prediction) == cleaner(ground_truth))
+    # cleaner function
+    def cleaner(text):
+        return re.sub('\u200c', " ", text).strip()
+
+    # -------------------------------------------------------------------- Method One (datasets.load_metric)
+    # SQuAD2.0 HuggingFace metrics 
+    metric = load_metric("squad_v2") # the dataset is like SQuAD2.0
+
+    formatted_preds = [{"id": str(k), 
+                        "prediction_text": cleaner(v['text']),
+                        "no_answer_probability": 0.0} 
+                        for k, v in preds.items()]
+
+    references = [{"id": str(i), 
+                   "answers": {'answer_start': a['answer_start'], 
+                              'text': map(cleaner, a['text'])}}
+                  for i, a in enumerate(answers)]
+
+    print(metric.compute(predictions=formatted_preds, references=references))
+
+    # ------------------------------------------------------------------- Method Two (offical SQuADv2)
+    # offical SQuAD2.0 evaluation script. Modifed slightly for this dataset
+    def f1_score(prediction, ground_truth):
+        prediction_tokens = cleaner(prediction)
+        ground_truth_tokens = cleaner(ground_truth)
+        common = Counter(prediction_tokens) & Counter(ground_truth_tokens)
+        num_same = sum(common.values())
+        if num_same == 0:
+            return 0
+        precision = 1.0 * num_same / len(prediction_tokens)
+        recall = 1.0 * num_same / len(ground_truth_tokens)
+        f1 = (2 * precision * recall) / (precision + recall)
+        return f1
 
 
-def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
-    scores_for_ground_truths = []
-    for ground_truth in ground_truths:
-        score = metric_fn(prediction, ground_truth)
-        scores_for_ground_truths.append(score)
-    
-    return max(scores_for_ground_truths)
+    def exact_match_score(prediction, ground_truth):
+        return (cleaner(prediction) == cleaner(ground_truth))
 
 
-def evaluate(gold_answers, predictions):
-    f1 = exact_match = total = 0
-    for ground_truths, prediction in zip(gold_answers, predictions):
-        total += 1
-        exact_match += metric_max_over_ground_truths(exact_match_score, prediction, ground_truths)
-        f1 += metric_max_over_ground_truths(f1_score, prediction, ground_truths)
-    exact_match = 100.0 * exact_match / total
-    f1 = 100.0 * f1 / total
-    return {'exact_match': exact_match, 'f1': f1}
+    def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
+        scores_for_ground_truths = []
+        for ground_truth in ground_truths:
+            score = metric_fn(prediction, ground_truth)
+            scores_for_ground_truths.append(score)
 
-  
-y_hat = [v['text'] for v in preds.values()]
-y = [v['text'] if len(v['text'])>0 else [''] for v in answers]
+        return max(scores_for_ground_truths)
 
-print(evaluate(y, y_hat))
+
+    def evaluate(gold_answers, predictions):
+        f1 = exact_match = total = 0
+        for ground_truths, prediction in zip(gold_answers, predictions):
+            total += 1
+            exact_match += metric_max_over_ground_truths(exact_match_score, prediction, ground_truths)
+            f1 += metric_max_over_ground_truths(f1_score, prediction, ground_truths)
+        exact_match = 100.0 * exact_match / total
+        f1 = 100.0 * f1 / total
+        return {'exact_match': exact_match, 'f1': f1}
+
+
+    y_hat = [v['text'] for v in preds.values()]
+    y = [v['text'] if len(v['text'])>0 else [''] for v in answers]
+
+    result.append(evaluate(y, y_hat))
+print(result)
